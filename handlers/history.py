@@ -79,8 +79,8 @@ async def show_calendar(callback: types.CallbackQuery, db):
     
     # Формируем текст
     text = "📅 *Календарь медитаций*\n\n"
-    text += "🟢 8-10 баллов | 🟡 5-7 баллов | 🔴 1-4 балла\n"
-    text += "_Цифра в скобках - количество медитаций за день_\n\n"
+    text += "✅ 8-10 баллов | 🔶 5-7 баллов | ❌ 1-4 балла\n"
+    text += "_Цифра - количество медитаций за день_\n\n"
     
     # Статистика месяца
     if sessions:
@@ -95,7 +95,7 @@ async def show_calendar(callback: types.CallbackQuery, db):
         text += f"• Общее время: {total_duration} мин\n"
         text += f"• Средняя оценка: {avg_rating:.1f}/10\n"
     
-    keyboard = get_calendar_keyboard(now.year, now.month, sessions_by_day)
+    keyboard = get_calendar_keyboard(now.year, now.month, sessions_by_day, from_history=True)
     
     await callback.message.edit_text(text, parse_mode="Markdown", reply_markup=keyboard)
     await callback.answer()
@@ -107,7 +107,7 @@ async def show_day_details(callback: types.CallbackQuery, db):
     
     stats = await db.get_daily_stats(callback.from_user.id, selected_date)
     
-    if stats['sessions_count'] == 0:
+    if not stats or stats['sessions_count'] == 0:
         await callback.answer("В этот день не было медитаций", show_alert=True)
         return
     
@@ -180,7 +180,7 @@ async def navigate_calendar(callback: types.CallbackQuery, db):
     }
     
     text = f"📅 *Календарь медитаций - {month_names[month]} {year}*\n\n"
-    text += "🟢 8-10 баллов | 🟡 5-7 баллов | 🔴 1-4 балла\n\n"
+    text += "✅ 8-10 баллов | 🔶 5-7 баллов | ❌ 1-4 балла\n\n"
     
     if sessions:
         total_sessions = len(sessions)
@@ -196,7 +196,7 @@ async def navigate_calendar(callback: types.CallbackQuery, db):
     else:
         text += "В этом месяце медитаций не было\n"
     
-    keyboard = get_calendar_keyboard(year, month, sessions_by_day)
+    keyboard = get_calendar_keyboard(year, month, sessions_by_day, from_history=True)
     
     await callback.message.edit_text(text, parse_mode="Markdown", reply_markup=keyboard)
     await callback.answer()
@@ -233,6 +233,55 @@ async def show_week_history(callback: types.CallbackQuery, db):
     
     if len(week_sessions) > 10:
         text += f"\n_...и еще {len(week_sessions) - 10} медитаций_"
+    
+    # Кнопка возврата
+    builder = InlineKeyboardBuilder()
+    builder.button(text="◀️ Назад", callback_data="back_to_history")
+    
+    await callback.message.edit_text(text, parse_mode="Markdown", reply_markup=builder.as_markup())
+    await callback.answer()
+
+async def show_month_history(callback: types.CallbackQuery, db):
+    """Показать историю за месяц"""
+    user_id = callback.from_user.id
+    month_ago = datetime.now() - timedelta(days=30)
+    
+    # Получаем сессии за месяц
+    sessions = await db.get_user_sessions(user_id, limit=100)
+    month_sessions = [s for s in sessions if s['start_time'] >= month_ago]
+    
+    if not month_sessions:
+        await callback.answer("За последний месяц не было медитаций", show_alert=True)
+        return
+    
+    # Считаем статистику
+    total_duration = sum(s['duration'] for s in month_sessions)
+    avg_rating = sum(s['rating'] for s in month_sessions) / len(month_sessions)
+    days_with_meditation = len(set(s['start_time'].date() for s in month_sessions))
+    
+    # Группируем по неделям
+    weeks = {}
+    for session in month_sessions:
+        week_num = session['start_time'].isocalendar()[1]
+        if week_num not in weeks:
+            weeks[week_num] = []
+        weeks[week_num].append(session)
+    
+    text = "📈 *Медитации за последний месяц*\n\n"
+    text += f"📊 *Общая статистика:*\n"
+    text += f"• Всего медитаций: {len(month_sessions)}\n"
+    text += f"• Дней с практикой: {days_with_meditation}/30\n"
+    text += f"• Общее время: {total_duration} минут\n"
+    text += f"• Средняя оценка: {avg_rating:.1f}/10\n\n"
+    
+    text += "*По неделям:*\n"
+    for week_num, week_sessions in sorted(weeks.items(), reverse=True):
+        week_total = sum(s['duration'] for s in week_sessions)
+        week_avg = sum(s['rating'] for s in week_sessions) / len(week_sessions)
+        text += f"\n📅 Неделя {week_num}:\n"
+        text += f"   • Медитаций: {len(week_sessions)}\n"
+        text += f"   • Время: {week_total} мин\n"
+        text += f"   • Средняя оценка: {week_avg:.1f}/10\n"
     
     # Кнопка возврата
     builder = InlineKeyboardBuilder()
