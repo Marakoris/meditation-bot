@@ -64,3 +64,65 @@ def get_confirmation_keyboard() -> types.InlineKeyboardMarkup:
     builder.adjust(2)
     
     return builder.as_markup()
+
+def get_history_keyboard() -> types.InlineKeyboardMarkup:
+    """Клавиатура для истории медитаций"""
+    builder = InlineKeyboardBuilder()
+    
+    builder.button(text="📅 Календарь", callback_data="show_calendar")
+    builder.button(text="📊 За неделю", callback_data="history_week")
+    builder.button(text="📈 За месяц", callback_data="history_month")
+    
+    builder.adjust(3)
+    
+    return builder.as_markup()
+
+def get_calendar_keyboard(year: int, month: int) -> types.InlineKeyboardMarkup:
+    """Клавиатура календаря"""
+    from calendar import monthrange, month_name
+    import locale
+    
+    # Устанавливаем русскую локаль для названий месяцев
+    try:
+        locale.setlocale(locale.LC_TIME, 'ru_RU.UTF-8')
+    except:
+        pass
+    
+    builder = InlineKeyboardBuilder()
+    
+    # Заголовок с месяцем и годом
+    month_name_ru = {
+        1: "Январь", 2: "Февраль", 3: "Март", 4: "Апрель",
+        5: "Май", 6: "Июнь", 7: "Июль", 8: "Август",
+        9: "Сентябрь", 10: "Октябрь", 11: "Ноябрь", 12: "Декабрь"
+    }
+    
+    # Навигация по месяцам
+    builder.button(text="◀️", callback_data=f"cal_prev_{year}_{month}")
+    builder.button(text=f"{month_name_ru[month]} {year}", callback_data="cal_ignore")
+    builder.button(text="▶️", callback_data=f"cal_next_{year}_{month}")
+    builder.adjust(3)
+    
+    # Дни недели
+    days = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"]
+    for day in days:
+        builder.button(text=day, callback_data="cal_ignore")
+    builder.adjust(3, 7)
+    
+    # Получаем первый день месяца и количество дней
+    first_day, days_in_month = monthrange(year, month)
+    
+    # Добавляем пустые кнопки до первого дня
+    for _ in range(first_day):
+        builder.button(text=" ", callback_data="cal_ignore")
+    
+    # Добавляем дни месяца
+    for day in range(1, days_in_month + 1):
+        builder.button(text=str(day), callback_data=f"cal_day_{year}_{month}_{day}")
+    
+    # Выравниваем сетку
+    total_buttons = 3 + 7 + first_day + days_in_month
+    rows = [3, 7] + [7] * ((total_buttons - 10 + 6) // 7)
+    builder.adjust(*rows)
+    
+    return builder.as_markup()
