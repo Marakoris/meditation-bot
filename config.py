@@ -16,9 +16,10 @@ class Config:
         "postgresql://user:password@localhost:5432/meditation_bot"
     )
     
-    # AI Service (Claude API или OpenAI)
+    # AI Service (Claude API, OpenAI или OpenRouter)
     AI_API_KEY: str = os.getenv("AI_API_KEY", "")
-    AI_SERVICE: str = os.getenv("AI_SERVICE", "claude")  # claude или openai
+    AI_SERVICE: str = os.getenv("AI_SERVICE", "openrouter")  # openrouter, claude или openai
+    AI_MODEL: str = os.getenv("AI_MODEL", "anthropic/claude-3-haiku")  # Модель для OpenRouter
     
     # Admin IDs
     ADMIN_IDS: list[int] = [
