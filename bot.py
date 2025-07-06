@@ -31,7 +31,7 @@ config = Config()
 bot = Bot(token=config.BOT_TOKEN)
 dp = Dispatcher(storage=MemoryStorage())
 db = Database(config.DATABASE_URL)
-ai = AIService(config.AI_API_KEY)
+ai = AIService(config.AI_API_KEY, config.AI_SERVICE, config.AI_MODEL)
 
 @dp.message(Command("start"))
 async def cmd_start(message: types.Message):
