@@ -139,6 +139,10 @@ async def handle_navigate_calendar(callback: types.CallbackQuery):
 async def handle_show_week_history(callback: types.CallbackQuery):
     await history.show_week_history(callback, db)
 
+@dp.callback_query(F.data == "history_month")
+async def handle_show_month_history(callback: types.CallbackQuery):
+    await history.show_month_history(callback, db)
+
 @dp.callback_query(F.data == "cal_ignore")
 async def handle_ignore_callback(callback: types.CallbackQuery):
     await history.ignore_callback(callback)
@@ -146,6 +150,59 @@ async def handle_ignore_callback(callback: types.CallbackQuery):
 @dp.callback_query(F.data == "back_to_history")
 async def handle_back_to_history(callback: types.CallbackQuery):
     await history.back_to_history(callback, db)
+
+@dp.callback_query(F.data.startswith("cal_month_stats_"))
+async def handle_month_stats(callback: types.CallbackQuery):
+    """Показать статистику за конкретный месяц"""
+    parts = callback.data.split("_")
+    year = int(parts[3])
+    month = int(parts[4])
+    
+    sessions = await db.get_sessions_by_month(callback.from_user.id, year, month)
+    
+    if not sessions:
+        await callback.answer("В этом месяце не было медитаций", show_alert=True)
+        return
+    
+    # Считаем детальную статистику
+    total_duration = sum(s['duration'] for s in sessions)
+    avg_rating = sum(s['rating'] for s in sessions) / len(sessions)
+    days_with_practice = len(set(s['start_time'].date() for s in sessions))
+    
+    # Самая длинная и короткая медитация
+    longest = max(sessions, key=lambda x: x['duration'])
+    shortest = min(sessions, key=lambda x: x['duration'])
+    
+    # Лучшая и худшая оценка
+    best = max(sessions, key=lambda x: x['rating'])
+    worst = min(sessions, key=lambda x: x['rating'])
+    
+    month_names = {
+        1: "Январь", 2: "Февраль", 3: "Март", 4: "Апрель",
+        5: "Май", 6: "Июнь", 7: "Июль", 8: "Август",
+        9: "Сентябрь", 10: "Октябрь", 11: "Ноябрь", 12: "Декабрь"
+    }
+    
+    text = f"📊 *Детальная статистика за {month_names[month]} {year}*\n\n"
+    text += f"🧘 *Основные показатели:*\n"
+    text += f"• Всего медитаций: {len(sessions)}\n"
+    text += f"• Дней с практикой: {days_with_practice}\n"
+    text += f"• Общее время: {total_duration} минут\n"
+    text += f"• Среднее время сессии: {total_duration // len(sessions)} минут\n"
+    text += f"• Средняя оценка: {avg_rating:.1f}/10\n\n"
+    
+    text += f"📈 *Рекорды месяца:*\n"
+    text += f"• Самая длинная: {longest['duration']} мин ({longest['start_time'].strftime('%d.%m')})\n"
+    text += f"• Самая короткая: {shortest['duration']} мин ({shortest['start_time'].strftime('%d.%m')})\n"
+    text += f"• Лучшая оценка: {best['rating']}/10 ({best['start_time'].strftime('%d.%m')})\n"
+    text += f"• Худшая оценка: {worst['rating']}/10 ({worst['start_time'].strftime('%d.%m')})\n"
+    
+    # Кнопка возврата
+    builder = InlineKeyboardBuilder()
+    builder.button(text="◀️ Назад к календарю", callback_data="show_calendar")
+    
+    await callback.message.edit_text(text, parse_mode="Markdown", reply_markup=builder.as_markup())
+    await callback.answer()
 
 async def main():
     """Основная функция запуска бота"""
