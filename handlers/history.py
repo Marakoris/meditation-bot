@@ -243,8 +243,51 @@ async def show_week_history(callback: types.CallbackQuery, db):
 
 async def back_to_history(callback: types.CallbackQuery, db):
     """Вернуться к истории медитаций"""
-    # Вызываем обработчик истории
-    await meditation_history(callback.message, db)
+    # Получаем данные для истории
+    user_id = callback.from_user.id
+    sessions = await db.get_user_sessions(user_id, limit=15)
+    
+    if not sessions:
+        await callback.message.edit_text("У вас пока нет завершенных медитаций.")
+        await callback.answer()
+        return
+    
+    # Получаем общую статистику
+    stats = await db.get_user_stats(user_id)
+    total_sessions = stats['total_sessions']
+    
+    # Получаем статистику за последние 30 дней
+    monthly_stats = await db.get_monthly_stats(user_id)
+    
+    text = "📖 *История медитаций*\n\n"
+    text += f"📊 *Общая статистика:*\n"
+    text += f"• Всего медитаций: {total_sessions}\n"
+    text += f"• За последние 30 дней: {monthly_stats['sessions_count']}\n"
+    text += f"• Средняя оценка за месяц: {monthly_stats['avg_rating']:.1f}/10\n"
+    text += f"• Всего времени: {stats['total_duration']} мин\n\n"
+    
+    text += f"*Последние 15 медитаций:*\n\n"
+    
+    for session in sessions:
+        date = session['start_time'].strftime("%d.%m.%Y %H:%M")
+        text += f"🧘 {date}\n"
+        text += f"   ⏱️ {session['duration']} мин | ⭐ {session['rating']}/10\n"
+        if session['comment']:
+            # Умная обрезка комментария
+            comment = session['comment']
+            if len(comment) > 100:
+                cut_pos = comment[:100].rfind(' ')
+                if cut_pos > 80:
+                    comment = comment[:cut_pos] + "..."
+                else:
+                    comment = comment[:100] + "..."
+            text += f"   💭 {comment}\n"
+        text += "\n"
+    
+    # Добавляем кнопки для дополнительных действий
+    keyboard = get_history_keyboard()
+    
+    await callback.message.edit_text(text, parse_mode="Markdown", reply_markup=keyboard)
     await callback.answer()
 
 async def ignore_callback(callback: types.CallbackQuery):
