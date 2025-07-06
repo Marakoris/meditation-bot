@@ -77,16 +77,9 @@ def get_history_keyboard() -> types.InlineKeyboardMarkup:
     
     return builder.as_markup()
 
-def get_calendar_keyboard(year: int, month: int) -> types.InlineKeyboardMarkup:
-    """Клавиатура календаря"""
-    from calendar import monthrange, month_name
-    import locale
-    
-    # Устанавливаем русскую локаль для названий месяцев
-    try:
-        locale.setlocale(locale.LC_TIME, 'ru_RU.UTF-8')
-    except:
-        pass
+def get_calendar_keyboard(year: int, month: int, user_sessions: dict = None) -> types.InlineKeyboardMarkup:
+    """Клавиатура календаря с отметками медитаций"""
+    from calendar import monthrange
     
     builder = InlineKeyboardBuilder()
     
@@ -116,13 +109,39 @@ def get_calendar_keyboard(year: int, month: int) -> types.InlineKeyboardMarkup:
     for _ in range(first_day):
         builder.button(text=" ", callback_data="cal_ignore")
     
-    # Добавляем дни месяца
+    # Добавляем дни месяца с отметками медитаций
     for day in range(1, days_in_month + 1):
-        builder.button(text=str(day), callback_data=f"cal_day_{year}_{month}_{day}")
+        if user_sessions and day in user_sessions:
+            # Есть медитация в этот день
+            avg_rating = user_sessions[day]['avg_rating']
+            count = user_sessions[day]['count']
+            
+            # Выбираем эмодзи по средней оценке
+            if avg_rating >= 8:
+                emoji = "🟢"
+            elif avg_rating >= 5:
+                emoji = "🟡"  
+            else:
+                emoji = "🔴"
+            
+            # Формат: эмодзи + день (+ количество если больше 1)
+            if count > 1:
+                text = f"{emoji}{day}({count})"
+            else:
+                text = f"{emoji}{day}"
+        else:
+            # Обычный день без медитаций
+            text = str(day)
+        
+        builder.button(text=text, callback_data=f"cal_day_{year}_{month}_{day}")
     
     # Выравниваем сетку
     total_buttons = 3 + 7 + first_day + days_in_month
     rows = [3, 7] + [7] * ((total_buttons - 10 + 6) // 7)
     builder.adjust(*rows)
+    
+    # Добавляем легенду внизу
+    builder.button(text="📊 Статистика месяца", callback_data=f"cal_month_stats_{year}_{month}")
+    builder.adjust(*rows, 1)
     
     return builder.as_markup()
