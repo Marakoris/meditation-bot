@@ -256,6 +256,58 @@ class Database:
                 'daily_goal': marathon['daily_goal']
             }
     
+    async def get_monthly_stats(self, user_id: int) -> Dict[str, Any]:
+        """Получение статистики за последние 30 дней"""
+        async with self.pool.acquire() as conn:
+            stats = await conn.fetchrow('''
+                SELECT 
+                    COUNT(*) as sessions_count,
+                    COALESCE(SUM(duration), 0) as total_duration,
+                    COALESCE(AVG(rating), 0) as avg_rating,
+                    COUNT(DISTINCT DATE(start_time)) as active_days
+                FROM sessions
+                WHERE user_id = $1 
+                    AND end_time IS NOT NULL
+                    AND start_time >= CURRENT_TIMESTAMP - INTERVAL '30 days'
+            ''', user_id)
+            return dict(stats)
+    
+    async def get_sessions_by_month(self, user_id: int, year: int, month: int) -> List[Dict[str, Any]]:
+        """Получение всех сессий за конкретный месяц"""
+        async with self.pool.acquire() as conn:
+            rows = await conn.fetch('''
+                SELECT * FROM sessions
+                WHERE user_id = $1 
+                    AND end_time IS NOT NULL
+                    AND EXTRACT(YEAR FROM start_time) = $2
+                    AND EXTRACT(MONTH FROM start_time) = $3
+                ORDER BY start_time
+            ''', user_id, year, month)
+            return [dict(row) for row in rows]
+    
+    async def get_daily_stats(self, user_id: int, date: date) -> Dict[str, Any]:
+        """Получение статистики за конкретный день"""
+        async with self.pool.acquire() as conn:
+            stats = await conn.fetchrow('''
+                SELECT 
+                    COUNT(*) as sessions_count,
+                    COALESCE(SUM(duration), 0) as total_duration,
+                    COALESCE(AVG(rating), 0) as avg_rating,
+                    COALESCE(MAX(rating), 0) as max_rating
+                FROM sessions
+                WHERE user_id = $1 
+                    AND DATE(start_time) = $2
+                    AND end_time IS NOT NULL
+            ''', user_id, date)
+            
+            sessions = await conn.fetch('''
+                SELECT * FROM sessions
+                WHERE user_id = $1 
+                    AND DATE(start_time) = $2
+                    AND end_time IS NOT NULL
+                ORDER BY start_time
+            ''', user_id, date)
+            
     async def close(self):
         """Закрытие пула соединений"""
         if self.pool:
