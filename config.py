@@ -1,6 +1,6 @@
 # config.py
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Optional
 
 @dataclass
@@ -8,29 +8,29 @@ class Config:
     """Конфигурация приложения"""
     
     # Bot
-    BOT_TOKEN: str = os.getenv("BOT_TOKEN", "")
+    BOT_TOKEN: str = field(default_factory=lambda: os.getenv("BOT_TOKEN", ""))
     
     # Database
-    DATABASE_URL: str = os.getenv(
+    DATABASE_URL: str = field(default_factory=lambda: os.getenv(
         "DATABASE_URL", 
-        "postgresql://user:password@localhost:5432/meditation_bot"
-    )
+        "postgresql://meditation_user:Med1tat10n_2024!@localhost:5432/meditation_bot"
+    ))
     
-    # AI Service (Claude API, OpenAI или OpenRouter)
-    AI_API_KEY: str = os.getenv("AI_API_KEY", "")
-    AI_SERVICE: str = os.getenv("AI_SERVICE", "openrouter")  # openrouter, claude или openai
-    AI_MODEL: str = os.getenv("AI_MODEL", "anthropic/claude-3-haiku")  # Модель для OpenRouter
+    # AI Service
+    AI_API_KEY: str = field(default_factory=lambda: os.getenv("AI_API_KEY", ""))
+    AI_SERVICE: str = field(default_factory=lambda: os.getenv("AI_SERVICE", "openrouter"))
+    AI_MODEL: str = field(default_factory=lambda: os.getenv("AI_MODEL", "anthropic/claude-3-haiku"))
     
     # Admin IDs
-    ADMIN_IDS: list[int] = [
+    ADMIN_IDS: list[int] = field(default_factory=lambda: [
         int(id.strip()) 
         for id in os.getenv("ADMIN_IDS", "").split(",") 
         if id.strip()
-    ]
+    ])
     
     # Optional settings
-    TIMEZONE: str = os.getenv("TIMEZONE", "Europe/Moscow")
-    MAX_SESSIONS_PER_DAY: int = int(os.getenv("MAX_SESSIONS_PER_DAY", "10"))
+    TIMEZONE: str = field(default_factory=lambda: os.getenv("TIMEZONE", "Europe/Moscow"))
+    MAX_SESSIONS_PER_DAY: int = field(default_factory=lambda: int(os.getenv("MAX_SESSIONS_PER_DAY", "10")))
     
     def __post_init__(self):
         """Валидация конфигурации"""
