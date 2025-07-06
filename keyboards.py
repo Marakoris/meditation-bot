@@ -77,7 +77,7 @@ def get_history_keyboard() -> types.InlineKeyboardMarkup:
     
     return builder.as_markup()
 
-def get_calendar_keyboard(year: int, month: int, user_sessions: dict = None) -> types.InlineKeyboardMarkup:
+def get_calendar_keyboard(year: int, month: int, user_sessions: dict = None, from_history: bool = False) -> types.InlineKeyboardMarkup:
     """Клавиатура календаря с отметками медитаций"""
     from calendar import monthrange
     
@@ -116,19 +116,19 @@ def get_calendar_keyboard(year: int, month: int, user_sessions: dict = None) -> 
             avg_rating = user_sessions[day]['avg_rating']
             count = user_sessions[day]['count']
             
-            # Выбираем эмодзи по средней оценке
+            # Выбираем эмодзи по средней оценке (меньшие символы)
             if avg_rating >= 8:
-                emoji = "🟢"
+                emoji = "✅"
             elif avg_rating >= 5:
-                emoji = "🟡"  
+                emoji = "🔶"  
             else:
-                emoji = "🔴"
+                emoji = "❌"
             
-            # Формат: эмодзи + день (+ количество если больше 1)
+            # Формат: день + эмодзи (+ количество если больше 1)
             if count > 1:
-                text = f"{emoji}{day}({count})"
+                text = f"{day}{emoji}{count}"
             else:
-                text = f"{emoji}{day}"
+                text = f"{day}{emoji}"
         else:
             # Обычный день без медитаций
             text = str(day)
@@ -140,8 +140,12 @@ def get_calendar_keyboard(year: int, month: int, user_sessions: dict = None) -> 
     rows = [3, 7] + [7] * ((total_buttons - 10 + 6) // 7)
     builder.adjust(*rows)
     
-    # Добавляем легенду внизу
+    # Добавляем кнопки внизу
     builder.button(text="📊 Статистика месяца", callback_data=f"cal_month_stats_{year}_{month}")
-    builder.adjust(*rows, 1)
+    if from_history:
+        builder.button(text="◀️ Назад к истории", callback_data="back_to_history")
+        builder.adjust(*rows, 1, 1)
+    else:
+        builder.adjust(*rows, 1)
     
     return builder.as_markup()
