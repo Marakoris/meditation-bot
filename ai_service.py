@@ -320,3 +320,33 @@ class AIService:
                 return '{"confidence": false, "clarification_needed": "информацию о медитации"}'
         else:
             return '{"confidence": false, "clarification_needed": "информацию о медитации"}'
+
+    async def get_progress_analysis(self, data: dict) -> str:
+        """Генерирует текстовый анализ прогресса пользователя."""
+        from prompts import PROGRESS_ANALYSIS_PROMPT
+
+        # Тренд вычисляем по средним оценкам первой и второй половины
+        ratings = [s.get("rating") for s in data.get("recent_sessions", []) if s.get("rating") is not None]
+        trend = "недостаточно данных"
+        if len(ratings) >= 2:
+            half = len(ratings) // 2
+            first_avg = sum(ratings[:half]) / half
+            last_avg = sum(ratings[half:]) / len(ratings[half:])
+            delta = last_avg - first_avg
+            if delta > 0.5:
+                trend = "растущий"
+            elif delta < -0.5:
+                trend = "падающий"
+            else:
+                trend = "стабильный"
+
+        prompt = PROGRESS_ANALYSIS_PROMPT.format(
+            total_sessions=data.get('total_sessions', 0),
+            total_duration=data.get('total_duration', 0),
+            avg_rating=data.get('avg_rating', 0),
+            month_sessions=data.get('monthly_sessions', 0),
+            rating_trend=trend
+        )
+
+        # Используем провайдера, как и в генерации отчетов
+        return await self.provider.generate_feedback(prompt, 0, 10)
