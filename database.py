@@ -73,6 +73,21 @@ class Database:
                 CREATE INDEX IF NOT EXISTS idx_sessions_marathon_id 
                 ON sessions(marathon_id)
             ''')
+            await conn.execute('''
+                CREATE TABLE IF NOT EXISTS dialogue_history (
+                    id SERIAL PRIMARY KEY,
+                    user_id BIGINT REFERENCES users(user_id),
+                    content TEXT NOT NULL,
+                    is_user BOOLEAN NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            ''')
+            
+            # Создаем индекс для диалогов
+            await conn.execute('''
+                CREATE INDEX IF NOT EXISTS idx_dialogue_user_id 
+                ON dialogue_history(user_id, created_at DESC)
+            ''')
     
     # Методы для работы с пользователями
     async def create_user(self, user_id: int, username: Optional[str],
@@ -312,3 +327,58 @@ class Database:
         """Закрытие пула соединений"""
         if self.pool:
             await self.pool.close()
+    
+    # Методы для диалогов
+    async def save_dialogue_message(self, user_id: int, content: str, is_user: bool):
+        """Сохранить сообщение в историю диалога"""
+        async with self.pool.acquire() as conn:
+            await conn.execute('''
+                INSERT INTO dialogue_history (user_id, content, is_user)
+                VALUES ($1, $2, $3)
+            ''', user_id, content, is_user)
+    
+    async def get_dialogue_history(self, user_id: int, limit: int = 20) -> List[Dict[str, Any]]:
+        """Получить историю диалога пользователя"""
+        async with self.pool.acquire() as conn:
+            rows = await conn.fetch('''
+                SELECT content, is_user, created_at
+                FROM dialogue_history
+                WHERE user_id = $1
+                ORDER BY created_at DESC
+                LIMIT $2
+            ''', user_id, limit)
+            # Возвращаем в хронологическом порядке
+            return [dict(row) for row in reversed(rows)]
+    
+    async def create_manual_session(self, user_id: int, start_time: datetime, 
+                                  duration: int, rating: Optional[int] = None, 
+                                  comment: Optional[str] = None) -> int:
+        """Создать сессию медитации вручную"""
+        async with self.pool.acquire() as conn:
+            # Вычисляем end_time
+            end_time = start_time + timedelta(minutes=duration)
+            
+            session_id = await conn.fetchval('''
+                INSERT INTO sessions (user_id, start_time, end_time, duration, rating, comment)
+                VALUES ($1, $2, $3, $4, $5, $6)
+                RETURNING session_id
+            ''', user_id, start_time, end_time, duration, rating, comment)
+            return session_id
+    
+    async def get_session_by_id(self, session_id: int) -> Optional[Dict[str, Any]]:
+        """Получить сессию по ID"""
+        async with self.pool.acquire() as conn:
+            row = await conn.fetchrow('''
+                SELECT * FROM sessions
+                WHERE session_id = $1
+            ''', session_id)
+            return dict(row) if row else None
+    
+    async def delete_session(self, session_id: int, user_id: int) -> bool:
+        """Удалить сессию медитации"""
+        async with self.pool.acquire() as conn:
+            result = await conn.execute('''
+                DELETE FROM sessions
+                WHERE session_id = $1 AND user_id = $2
+            ''', session_id, user_id)
+            return result.split()[-1] != '0'
