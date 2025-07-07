@@ -21,7 +21,11 @@ def get_main_keyboard(meditation_active: bool = False, is_admin: bool = False) -
     if is_admin:
         builder.button(text="👨‍💼 Создать марафон")
     
-    builder.adjust(2, 2, 2, 2, 1)
+    # Расположение кнопок: 2-2-2-2-1
+    if is_admin:
+        builder.adjust(2, 2, 2, 2, 1, 1)
+    else:
+        builder.adjust(2, 2, 2, 2, 1)
     
     return builder.as_markup(resize_keyboard=True)
 
@@ -38,25 +42,6 @@ def get_rating_keyboard() -> types.InlineKeyboardMarkup:
     
     return builder.as_markup()
 
-def get_cancel_keyboard() -> types.ReplyKeyboardMarkup:
-    """Клавиатура отмены"""
-    builder = ReplyKeyboardBuilder()
-    builder.button(text="❌ Отменить")
-    return builder.as_markup(resize_keyboard=True)
-
-def get_marathon_admin_keyboard() -> types.InlineKeyboardMarkup:
-    """Клавиатура администратора марафона"""
-    builder = InlineKeyboardBuilder()
-    
-    builder.button(text="📊 Статистика марафона", callback_data="marathon_stats")
-    builder.button(text="📋 Список участников", callback_data="marathon_participants")
-    builder.button(text="📢 Отправить сообщение", callback_data="marathon_broadcast")
-    builder.button(text="🏁 Завершить марафон", callback_data="marathon_finish")
-    
-    builder.adjust(2, 2)
-    
-    return builder.as_markup()
-
 def get_confirmation_keyboard() -> types.InlineKeyboardMarkup:
     """Клавиатура подтверждения"""
     builder = InlineKeyboardBuilder()
@@ -65,6 +50,18 @@ def get_confirmation_keyboard() -> types.InlineKeyboardMarkup:
     builder.button(text="❌ Нет", callback_data="confirm_no")
     
     builder.adjust(2)
+    
+    return builder.as_markup()
+
+def get_dialogue_keyboard() -> types.InlineKeyboardMarkup:
+    """Клавиатура для диалога с AI"""
+    builder = InlineKeyboardBuilder()
+    
+    builder.button(text="📝 Записать медитацию", callback_data="record_meditation")
+    builder.button(text="📊 Анализ прогресса", callback_data="show_progress_analysis")
+    builder.button(text="◀️ Главное меню", callback_data="back_to_main")
+    
+    builder.adjust(2, 1)
     
     return builder.as_markup()
 
@@ -119,7 +116,7 @@ def get_calendar_keyboard(year: int, month: int, user_sessions: dict = None, fro
             avg_rating = user_sessions[day]['avg_rating']
             count = user_sessions[day]['count']
             
-            # Выбираем эмодзи по средней оценке (меньшие символы)
+            # Выбираем эмодзи по средней оценке (компактные символы)
             if avg_rating >= 8:
                 emoji = "✅"
             elif avg_rating >= 5:
@@ -138,7 +135,7 @@ def get_calendar_keyboard(year: int, month: int, user_sessions: dict = None, fro
         
         builder.button(text=text, callback_data=f"cal_day_{year}_{month}_{day}")
     
-    # Выравниваем сетку
+    # Выравниваем сетку календаря
     total_buttons = 3 + 7 + first_day + days_in_month
     rows = [3, 7] + [7] * ((total_buttons - 10 + 6) // 7)
     builder.adjust(*rows)
@@ -150,5 +147,24 @@ def get_calendar_keyboard(year: int, month: int, user_sessions: dict = None, fro
         builder.adjust(*rows, 1, 1)
     else:
         builder.adjust(*rows, 1)
+    
+    return builder.as_markup()
+
+def get_cancel_keyboard() -> types.ReplyKeyboardMarkup:
+    """Клавиатура отмены"""
+    builder = ReplyKeyboardBuilder()
+    builder.button(text="❌ Отменить")
+    return builder.as_markup(resize_keyboard=True)
+
+def get_marathon_admin_keyboard() -> types.InlineKeyboardMarkup:
+    """Клавиатура администратора марафона"""
+    builder = InlineKeyboardBuilder()
+    
+    builder.button(text="📊 Статистика марафона", callback_data="marathon_stats")
+    builder.button(text="📋 Список участников", callback_data="marathon_participants")
+    builder.button(text="📢 Отправить сообщение", callback_data="marathon_broadcast")
+    builder.button(text="🏁 Завершить марафон", callback_data="marathon_finish")
+    
+    builder.adjust(2, 2)
     
     return builder.as_markup()
