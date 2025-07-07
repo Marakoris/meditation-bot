@@ -1,17 +1,42 @@
 # handlers/dialogue.py
 from aiogram import types, F
 from aiogram.fsm.context import FSMContext
+from aiogram.utils.keyboard import InlineKeyboardBuilder
 from datetime import datetime, timedelta
 import json
 import re
 
-from keyboards import get_main_keyboard, get_confirmation_keyboard
+from keyboards import (get_main_keyboard, get_confirmation_keyboard, 
+                      get_dialogue_keyboard, get_cancel_keyboard)
 from states import DialogueStates
 from prompts import SYSTEM_PROMPT, DIALOGUE_PROMPT, PARSE_MEDITATION_PROMPT
 
-async def start_dialogue(message: types.Message, db, ai):
+async def start_dialogue(message: types.Message, state: FSMContext, db, ai):
     """Начать диалог с AI"""
     user_id = message.from_user.id
+    
+    # Приветственное сообщение
+    welcome_text = (
+        "🤖 *Добро пожаловать в диалог с AI-ассистентом!*\n\n"
+        "Я - ваш личный инструктор медитации. Могу помочь с:\n"
+        "• Вопросами о практике медитации\n"
+        "• Анализом вашего прогресса\n"
+        "• Записью медитаций в свободной форме\n"
+        "• Советами и техниками\n\n"
+        "Просто напишите ваш вопрос или сообщение!"
+    )
+    
+    await message.answer(
+        welcome_text, 
+        parse_mode="Markdown",
+        reply_markup=get_dialogue_keyboard()
+    )
+    await state.set_state(DialogueStates.in_dialogue)
+
+async def process_dialogue(message: types.Message, state: FSMContext, db, ai):
+    """Обработка диалога с AI"""
+    user_id = message.from_user.id
+    user_message = message.text
     
     # Получаем историю диалогов
     history = await db.get_dialogue_history(user_id, limit=10)
@@ -24,17 +49,20 @@ async def start_dialogue(message: types.Message, db, ai):
     
     # Генерируем ответ
     response = await ai.generate_dialogue_response(
-        message.text,
+        user_message,
         context,
         SYSTEM_PROMPT,
         DIALOGUE_PROMPT
     )
     
     # Сохраняем в историю
-    await db.save_dialogue_message(user_id, message.text, True)
+    await db.save_dialogue_message(user_id, user_message, True)
     await db.save_dialogue_message(user_id, response, False)
     
-    await message.answer(response)
+    await message.answer(
+        response, 
+        reply_markup=get_dialogue_keyboard()
+    )
 
 async def manual_meditation_entry(message: types.Message, state: FSMContext):
     """Начать ручную запись медитации"""
@@ -42,15 +70,25 @@ async def manual_meditation_entry(message: types.Message, state: FSMContext):
         "📝 *Запись медитации*\n\n"
         "Опишите вашу медитацию в свободной форме. Например:\n"
         "_'Медитировал сегодня утром 20 минут, было спокойно, оценка 8'_\n"
-        "_'Вчера вечером в 22:00 практиковал 30 минут'_\n\n"
+        "_'Вчера вечером в 22:00 практиковал 30 минут'_\n"
+        "_'Час назад закончил медитацию, сидел 20 минут'_\n\n"
         "Я пойму ваше сообщение и создам запись.",
-        parse_mode="Markdown"
+        parse_mode="Markdown",
+        reply_markup=get_cancel_keyboard()
     )
     await state.set_state(DialogueStates.waiting_for_manual_entry)
 
 async def process_manual_entry(message: types.Message, state: FSMContext, db, ai):
     """Обработать ручной ввод медитации"""
     user_id = message.from_user.id
+    
+    if message.text == "❌ Отменить":
+        await message.answer(
+            "❌ Запись медитации отменена.",
+            reply_markup=get_main_keyboard(is_admin=user_id in [])  # TODO: получить admin IDs
+        )
+        await state.clear()
+        return
     
     # Парсим сообщение через AI
     parsed = await ai.parse_meditation_entry(message.text)
@@ -60,7 +98,8 @@ async def process_manual_entry(message: types.Message, state: FSMContext, db, ai
     except:
         await message.answer(
             "🤔 Не смог понять ваше сообщение. "
-            "Попробуйте указать время и продолжительность более явно."
+            "Попробуйте указать время и продолжительность более явно.\n\n"
+            "Например: 'Медитировал 30 минут утром'"
         )
         return
     
@@ -136,11 +175,23 @@ async def confirm_manual_entry(callback: types.CallbackQuery, state: FSMContext,
             (f"💭 {parsed['comment']}" if parsed.get('comment') else "")
         )
         
+        # Возвращаем основную клавиатуру
+        await callback.message.answer(
+            "Запись добавлена в вашу историю медитаций.",
+            reply_markup=get_main_keyboard()
+        )
+        
         await state.clear()
     else:
         await callback.message.edit_text(
             "❌ Запись отменена.\n\n"
             "Попробуйте описать медитацию еще раз или используйте обычный таймер."
+        )
+        
+        # Возвращаем основную клавиатуру
+        await callback.message.answer(
+            "Выберите действие:",
+            reply_markup=get_main_keyboard()
         )
         await state.clear()
     
@@ -199,7 +250,10 @@ async def confirm_delete_session(callback: types.CallbackQuery, db):
     )
     
     if session['comment']:
-        text += f"💭 {session['comment'][:50]}...\n"
+        comment_preview = session['comment'][:50]
+        if len(session['comment']) > 50:
+            comment_preview += "..."
+        text += f"💭 {comment_preview}\n"
     
     keyboard = InlineKeyboardBuilder()
     keyboard.button(text="🗑️ Удалить", callback_data=f"confirm_delete_{session_id}")
@@ -225,4 +279,61 @@ async def process_delete_session(callback: types.CallbackQuery, db):
     else:
         await callback.message.edit_text("❌ Ошибка при удалении")
     
+    await callback.answer()
+
+async def show_progress_analysis(callback: types.CallbackQuery, db, ai):
+    """Показать анализ прогресса от AI"""
+    user_id = callback.from_user.id
+    
+    # Получаем статистику пользователя
+    stats = await db.get_user_stats(user_id)
+    monthly_stats = await db.get_monthly_stats(user_id)
+    recent_sessions = await db.get_user_sessions(user_id, limit=10)
+    
+    # Формируем данные для анализа
+    analysis_data = {
+        'total_sessions': stats['total_sessions'],
+        'total_duration': stats['total_duration'],
+        'avg_rating': stats['avg_rating'],
+        'monthly_sessions': monthly_stats['sessions_count'],
+        'monthly_avg_rating': monthly_stats['avg_rating'],
+        'recent_sessions': recent_sessions
+    }
+    
+    # Генерируем анализ через AI
+    analysis = await ai.get_progress_analysis(analysis_data)
+    
+    text = "📊 *Анализ вашего прогресса*\n\n"
+    text += f"🧘 Всего медитаций: {stats['total_sessions']}\n"
+    text += f"⏱️ Общее время: {stats['total_duration']} минут\n"
+    text += f"⭐ Средняя оценка: {stats['avg_rating']:.1f}/10\n"
+    text += f"📅 За месяц: {monthly_stats['sessions_count']} медитаций\n\n"
+    text += f"🤖 *AI-анализ:*\n{analysis}"
+    
+    # Кнопка возврата
+    builder = InlineKeyboardBuilder()
+    builder.button(text="◀️ Назад", callback_data="back_to_main")
+    
+    await callback.message.edit_text(
+        text, 
+        parse_mode="Markdown",
+        reply_markup=builder.as_markup()
+    )
+    await callback.answer()
+
+async def back_to_main_menu(callback: types.CallbackQuery, state: FSMContext, config):
+    """Вернуться в главное меню"""
+    await state.clear()
+    
+    is_admin = callback.from_user.id in config.ADMIN_IDS
+    
+    await callback.message.edit_text(
+        "🧘 Главное меню\n\nВыберите действие:",
+        reply_markup=None
+    )
+    
+    await callback.message.answer(
+        "Выберите действие:",
+        reply_markup=get_main_keyboard(is_admin=is_admin)
+    )
     await callback.answer()
