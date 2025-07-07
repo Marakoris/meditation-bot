@@ -1,6 +1,6 @@
 # database.py
 import asyncpg
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 from typing import Optional, List, Dict, Any
 import logging
 
@@ -19,16 +19,19 @@ class Database:
     async def create_tables(self):
         """Создание необходимых таблиц"""
         async with self.pool.acquire() as conn:
+            # Пользователи
             await conn.execute('''
                 CREATE TABLE IF NOT EXISTS users (
                     user_id BIGINT PRIMARY KEY,
                     username VARCHAR(255),
                     first_name VARCHAR(255),
                     last_name VARCHAR(255),
-                    joined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    joined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    timezone VARCHAR(50) DEFAULT 'UTC'
                 )
             ''')
             
+            # Сессии медитаций
             await conn.execute('''
                 CREATE TABLE IF NOT EXISTS sessions (
                     session_id SERIAL PRIMARY KEY,
@@ -42,6 +45,7 @@ class Database:
                 )
             ''')
             
+            # Марафоны
             await conn.execute('''
                 CREATE TABLE IF NOT EXISTS marathons (
                     marathon_id SERIAL PRIMARY KEY,
@@ -54,12 +58,24 @@ class Database:
                 )
             ''')
             
+            # Участники марафонов
             await conn.execute('''
                 CREATE TABLE IF NOT EXISTS marathon_participants (
                     user_id BIGINT REFERENCES users(user_id),
                     marathon_id INTEGER REFERENCES marathons(marathon_id),
                     joined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     PRIMARY KEY (user_id, marathon_id)
+                )
+            ''')
+            
+            # История диалогов с AI
+            await conn.execute('''
+                CREATE TABLE IF NOT EXISTS dialogue_history (
+                    id SERIAL PRIMARY KEY,
+                    user_id BIGINT REFERENCES users(user_id),
+                    content TEXT NOT NULL,
+                    is_user BOOLEAN NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             ''')
             
@@ -73,17 +89,7 @@ class Database:
                 CREATE INDEX IF NOT EXISTS idx_sessions_marathon_id 
                 ON sessions(marathon_id)
             ''')
-            await conn.execute('''
-                CREATE TABLE IF NOT EXISTS dialogue_history (
-                    id SERIAL PRIMARY KEY,
-                    user_id BIGINT REFERENCES users(user_id),
-                    content TEXT NOT NULL,
-                    is_user BOOLEAN NOT NULL,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                )
-            ''')
             
-            # Создаем индекс для диалогов
             await conn.execute('''
                 CREATE INDEX IF NOT EXISTS idx_dialogue_user_id 
                 ON dialogue_history(user_id, created_at DESC)
@@ -156,6 +162,39 @@ class Database:
                 WHERE session_id = $1
             ''', session_id, rating)
     
+    async def create_manual_session(self, user_id: int, start_time: datetime, 
+                                  duration: int, rating: Optional[int] = None, 
+                                  comment: Optional[str] = None) -> int:
+        """Создать сессию медитации вручную"""
+        async with self.pool.acquire() as conn:
+            # Вычисляем end_time
+            end_time = start_time + timedelta(minutes=duration)
+            
+            session_id = await conn.fetchval('''
+                INSERT INTO sessions (user_id, start_time, end_time, duration, rating, comment)
+                VALUES ($1, $2, $3, $4, $5, $6)
+                RETURNING session_id
+            ''', user_id, start_time, end_time, duration, rating, comment)
+            return session_id
+    
+    async def get_session_by_id(self, session_id: int) -> Optional[Dict[str, Any]]:
+        """Получить сессию по ID"""
+        async with self.pool.acquire() as conn:
+            row = await conn.fetchrow('''
+                SELECT * FROM sessions
+                WHERE session_id = $1
+            ''', session_id)
+            return dict(row) if row else None
+    
+    async def delete_session(self, session_id: int, user_id: int) -> bool:
+        """Удалить сессию медитации"""
+        async with self.pool.acquire() as conn:
+            result = await conn.execute('''
+                DELETE FROM sessions
+                WHERE session_id = $1 AND user_id = $2
+            ''', session_id, user_id)
+            return result.split()[-1] != '0'
+    
     async def get_user_sessions(self, user_id: int, limit: int = 10) -> List[Dict[str, Any]]:
         """Получение истории сессий пользователя"""
         async with self.pool.acquire() as conn:
@@ -179,6 +218,62 @@ class Database:
                 WHERE user_id = $1 AND end_time IS NOT NULL
             ''', user_id)
             return dict(stats)
+    
+    async def get_monthly_stats(self, user_id: int) -> Dict[str, Any]:
+        """Получение статистики за последние 30 дней"""
+        async with self.pool.acquire() as conn:
+            stats = await conn.fetchrow('''
+                SELECT 
+                    COUNT(*) as sessions_count,
+                    COALESCE(SUM(duration), 0) as total_duration,
+                    COALESCE(AVG(rating), 0) as avg_rating,
+                    COUNT(DISTINCT DATE(start_time)) as active_days
+                FROM sessions
+                WHERE user_id = $1 
+                    AND end_time IS NOT NULL
+                    AND start_time >= CURRENT_TIMESTAMP - INTERVAL '30 days'
+            ''', user_id)
+            return dict(stats)
+    
+    async def get_sessions_by_month(self, user_id: int, year: int, month: int) -> List[Dict[str, Any]]:
+        """Получение всех сессий за конкретный месяц"""
+        async with self.pool.acquire() as conn:
+            rows = await conn.fetch('''
+                SELECT * FROM sessions
+                WHERE user_id = $1 
+                    AND end_time IS NOT NULL
+                    AND EXTRACT(YEAR FROM start_time) = $2
+                    AND EXTRACT(MONTH FROM start_time) = $3
+                ORDER BY start_time
+            ''', user_id, year, month)
+            return [dict(row) for row in rows]
+    
+    async def get_daily_stats(self, user_id: int, date: date) -> Dict[str, Any]:
+        """Получение статистики за конкретный день"""
+        async with self.pool.acquire() as conn:
+            stats = await conn.fetchrow('''
+                SELECT 
+                    COUNT(*) as sessions_count,
+                    COALESCE(SUM(duration), 0) as total_duration,
+                    COALESCE(AVG(rating), 0) as avg_rating,
+                    COALESCE(MAX(rating), 0) as max_rating
+                FROM sessions
+                WHERE user_id = $1 
+                    AND DATE(start_time) = $2
+                    AND end_time IS NOT NULL
+            ''', user_id, date)
+            
+            sessions = await conn.fetch('''
+                SELECT * FROM sessions
+                WHERE user_id = $1 
+                    AND DATE(start_time) = $2
+                    AND end_time IS NOT NULL
+                ORDER BY start_time
+            ''', user_id, date)
+            
+            result = dict(stats)
+            result['sessions'] = [dict(row) for row in sessions]
+            return result
     
     # Методы для работы с марафонами
     async def create_marathon(self, title: str, description: str,
@@ -258,10 +353,14 @@ class Database:
             
             # Считаем количество дней с выполненной целью
             completed_days = await conn.fetchval('''
-                SELECT COUNT(DISTINCT DATE(start_time)) FROM sessions
-                WHERE user_id = $1 AND marathon_id = $2 AND end_time IS NOT NULL
-                GROUP BY DATE(start_time)
-                HAVING COUNT(*) >= $3
+                SELECT COUNT(*)
+                FROM (
+                    SELECT DATE(start_time) as session_date
+                    FROM sessions
+                    WHERE user_id = $1 AND marathon_id = $2 AND end_time IS NOT NULL
+                    GROUP BY DATE(start_time)
+                    HAVING COUNT(*) >= $3
+                ) daily_goals
             ''', user_id, marathon_id, marathon['daily_goal'])
             
             return {
@@ -271,64 +370,7 @@ class Database:
                 'daily_goal': marathon['daily_goal']
             }
     
-    async def get_monthly_stats(self, user_id: int) -> Dict[str, Any]:
-        """Получение статистики за последние 30 дней"""
-        async with self.pool.acquire() as conn:
-            stats = await conn.fetchrow('''
-                SELECT 
-                    COUNT(*) as sessions_count,
-                    COALESCE(SUM(duration), 0) as total_duration,
-                    COALESCE(AVG(rating), 0) as avg_rating,
-                    COUNT(DISTINCT DATE(start_time)) as active_days
-                FROM sessions
-                WHERE user_id = $1 
-                    AND end_time IS NOT NULL
-                    AND start_time >= CURRENT_TIMESTAMP - INTERVAL '30 days'
-            ''', user_id)
-            return dict(stats)
-    
-    async def get_sessions_by_month(self, user_id: int, year: int, month: int) -> List[Dict[str, Any]]:
-        """Получение всех сессий за конкретный месяц"""
-        async with self.pool.acquire() as conn:
-            rows = await conn.fetch('''
-                SELECT * FROM sessions
-                WHERE user_id = $1 
-                    AND end_time IS NOT NULL
-                    AND EXTRACT(YEAR FROM start_time) = $2
-                    AND EXTRACT(MONTH FROM start_time) = $3
-                ORDER BY start_time
-            ''', user_id, year, month)
-            return [dict(row) for row in rows]
-    
-    async def get_daily_stats(self, user_id: int, date: date) -> Dict[str, Any]:
-        """Получение статистики за конкретный день"""
-        async with self.pool.acquire() as conn:
-            stats = await conn.fetchrow('''
-                SELECT 
-                    COUNT(*) as sessions_count,
-                    COALESCE(SUM(duration), 0) as total_duration,
-                    COALESCE(AVG(rating), 0) as avg_rating,
-                    COALESCE(MAX(rating), 0) as max_rating
-                FROM sessions
-                WHERE user_id = $1 
-                    AND DATE(start_time) = $2
-                    AND end_time IS NOT NULL
-            ''', user_id, date)
-            
-            sessions = await conn.fetch('''
-                SELECT * FROM sessions
-                WHERE user_id = $1 
-                    AND DATE(start_time) = $2
-                    AND end_time IS NOT NULL
-                ORDER BY start_time
-            ''', user_id, date)
-            
-    async def close(self):
-        """Закрытие пула соединений"""
-        if self.pool:
-            await self.pool.close()
-    
-    # Методы для диалогов
+    # Методы для диалогов с AI
     async def save_dialogue_message(self, user_id: int, content: str, is_user: bool):
         """Сохранить сообщение в историю диалога"""
         async with self.pool.acquire() as conn:
@@ -350,35 +392,15 @@ class Database:
             # Возвращаем в хронологическом порядке
             return [dict(row) for row in reversed(rows)]
     
-    async def create_manual_session(self, user_id: int, start_time: datetime, 
-                                  duration: int, rating: Optional[int] = None, 
-                                  comment: Optional[str] = None) -> int:
-        """Создать сессию медитации вручную"""
+    async def clear_old_dialogue_history(self, days: int = 30):
+        """Очистить старую историю диалогов"""
         async with self.pool.acquire() as conn:
-            # Вычисляем end_time
-            end_time = start_time + timedelta(minutes=duration)
-            
-            session_id = await conn.fetchval('''
-                INSERT INTO sessions (user_id, start_time, end_time, duration, rating, comment)
-                VALUES ($1, $2, $3, $4, $5, $6)
-                RETURNING session_id
-            ''', user_id, start_time, end_time, duration, rating, comment)
-            return session_id
+            await conn.execute('''
+                DELETE FROM dialogue_history
+                WHERE created_at < CURRENT_TIMESTAMP - INTERVAL '%s days'
+            ''', days)
     
-    async def get_session_by_id(self, session_id: int) -> Optional[Dict[str, Any]]:
-        """Получить сессию по ID"""
-        async with self.pool.acquire() as conn:
-            row = await conn.fetchrow('''
-                SELECT * FROM sessions
-                WHERE session_id = $1
-            ''', session_id)
-            return dict(row) if row else None
-    
-    async def delete_session(self, session_id: int, user_id: int) -> bool:
-        """Удалить сессию медитации"""
-        async with self.pool.acquire() as conn:
-            result = await conn.execute('''
-                DELETE FROM sessions
-                WHERE session_id = $1 AND user_id = $2
-            ''', session_id, user_id)
-            return result.split()[-1] != '0'
+    async def close(self):
+        """Закрытие пула соединений"""
+        if self.pool:
+            await self.pool.close()
