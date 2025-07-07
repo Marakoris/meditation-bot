@@ -322,19 +322,20 @@ class AIService:
             return '{"confidence": false, "clarification_needed": "информацию о медитации"}'
 
     async def get_progress_analysis(self, data: dict) -> str:
-        """Генерация анализа прогресса пользователя"""
+        """Генерирует текстовый анализ прогресса пользователя."""
         from prompts import PROGRESS_ANALYSIS_PROMPT
 
-        # Вычисляем тренд оценок на основе последних сессий
-        ratings = [s.get('rating') for s in data.get('recent_sessions', []) if s.get('rating') is not None]
+        # Тренд вычисляем по средним оценкам первой и второй половины
+        ratings = [s.get("rating") for s in data.get("recent_sessions", []) if s.get("rating") is not None]
         trend = "недостаточно данных"
         if len(ratings) >= 2:
-            mid = len(ratings) // 2
-            first_avg = sum(ratings[:mid]) / len(ratings[:mid]) if mid > 0 else ratings[0]
-            last_avg = sum(ratings[mid:]) / len(ratings[mid:])
-            if last_avg - first_avg > 0.5:
+            half = len(ratings) // 2
+            first_avg = sum(ratings[:half]) / half
+            last_avg = sum(ratings[half:]) / len(ratings[half:])
+            delta = last_avg - first_avg
+            if delta > 0.5:
                 trend = "растущий"
-            elif first_avg - last_avg > 0.5:
+            elif delta < -0.5:
                 trend = "падающий"
             else:
                 trend = "стабильный"
