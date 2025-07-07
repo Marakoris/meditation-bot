@@ -233,3 +233,90 @@ class AIService:
         
         # Используем generate_feedback с модифицированным промптом
         return await self.provider.generate_feedback(prompt, 0, 10)
+    
+    async def generate_dialogue_response(self, message: str, history: str, 
+                                       system_prompt: str, dialogue_prompt: str) -> str:
+        """Генерация ответа в диалоге с учетом истории"""
+        if isinstance(self.provider, OpenRouterProvider):
+            formatted_prompt = dialogue_prompt.format(
+                history=history,
+                message=message
+            )
+            
+            headers = {
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {self.provider.api_key}",
+                "HTTP-Referer": "https://github.com/Marakoris/meditation-bot",
+                "X-Title": "Meditation Bot"
+            }
+            
+            payload = {
+                "model": self.provider.model,
+                "messages": [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": formatted_prompt}
+                ],
+                "max_tokens": 500,
+                "temperature": 0.8
+            }
+            
+            try:
+                async with aiohttp.ClientSession() as session:
+                    async with session.post(
+                        self.provider.base_url,
+                        headers=headers,
+                        json=payload
+                    ) as response:
+                        if response.status == 200:
+                            data = await response.json()
+                            return data['choices'][0]['message']['content']
+                        else:
+                            return "Извините, не могу ответить сейчас. Попробуйте позже."
+            except Exception as e:
+                logger.error(f"Error in dialogue: {e}")
+                return "Произошла ошибка. Попробуйте позже."
+        else:
+            # Для других провайдеров используем базовый метод
+            return await self.provider.generate_feedback(message, 0, 8)
+    
+    async def parse_meditation_entry(self, message: str) -> str:
+        """Парсинг свободной формы записи медитации"""
+        from prompts import PARSE_MEDITATION_PROMPT
+        
+        prompt = PARSE_MEDITATION_PROMPT.format(message=message)
+        
+        if isinstance(self.provider, OpenRouterProvider):
+            headers = {
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {self.provider.api_key}",
+                "HTTP-Referer": "https://github.com/Marakoris/meditation-bot",
+                "X-Title": "Meditation Bot"
+            }
+            
+            payload = {
+                "model": self.provider.model,
+                "messages": [
+                    {"role": "system", "content": "Ты - помощник для парсинга текста. Всегда отвечай только валидным JSON."},
+                    {"role": "user", "content": prompt}
+                ],
+                "max_tokens": 200,
+                "temperature": 0.3
+            }
+            
+            try:
+                async with aiohttp.ClientSession() as session:
+                    async with session.post(
+                        self.provider.base_url,
+                        headers=headers,
+                        json=payload
+                    ) as response:
+                        if response.status == 200:
+                            data = await response.json()
+                            return data['choices'][0]['message']['content']
+                        else:
+                            return '{"confidence": false, "clarification_needed": "информацию о медитации"}'
+            except Exception as e:
+                logger.error(f"Error parsing meditation: {e}")
+                return '{"confidence": false, "clarification_needed": "информацию о медитации"}'
+        else:
+            return '{"confidence": false, "clarification_needed": "информацию о медитации"}'
