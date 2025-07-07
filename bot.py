@@ -87,7 +87,7 @@ async def handle_manual_record(message: types.Message, state: FSMContext):
 
 @dp.message(DialogueStates.waiting_for_manual_entry)
 async def handle_meditation_text(message: types.Message, state: FSMContext):
-    await dialogue.process_manual_entry(message, state, db, ai)
+    await dialogue.process_manual_entry(message, state, db, ai, config)
 
 @dp.callback_query(DialogueStates.confirming_manual_entry, F.data.startswith("confirm_"))
 async def handle_confirm_manual(callback: types.CallbackQuery, state: FSMContext):
