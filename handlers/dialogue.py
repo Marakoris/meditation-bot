@@ -78,14 +78,14 @@ async def manual_meditation_entry(message: types.Message, state: FSMContext):
     )
     await state.set_state(DialogueStates.waiting_for_manual_entry)
 
-async def process_manual_entry(message: types.Message, state: FSMContext, db, ai):
+async def process_manual_entry(message: types.Message, state: FSMContext, db, ai, config):
     """Обработать ручной ввод медитации"""
     user_id = message.from_user.id
     
     if message.text == "❌ Отменить":
         await message.answer(
             "❌ Запись медитации отменена.",
-            reply_markup=get_main_keyboard(is_admin=user_id in [])  # TODO: получить admin IDs
+            reply_markup=get_main_keyboard(is_admin=user_id in config.ADMIN_IDS)
         )
         await state.clear()
         return
