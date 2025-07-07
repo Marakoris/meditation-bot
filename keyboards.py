@@ -11,14 +11,17 @@ def get_main_keyboard(meditation_active: bool = False, is_admin: bool = False) -
     else:
         builder.button(text="🧘 Начать медитацию")
     
+    builder.button(text="💬 Диалог с ИИ")
+    builder.button(text="📝 Записать медитацию")
     builder.button(text="🏃 Присоединиться к марафону")
     builder.button(text="📊 Мой прогресс")
     builder.button(text="📖 История медитаций")
+    builder.button(text="🗑️ Удалить запись")
     
     if is_admin:
         builder.button(text="👨‍💼 Создать марафон")
     
-    builder.adjust(2, 2, 1)
+    builder.adjust(2, 2, 2, 2, 1)
     
     return builder.as_markup(resize_keyboard=True)
 
