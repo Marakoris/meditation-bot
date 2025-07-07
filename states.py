@@ -10,6 +10,8 @@ class MeditationStates(StatesGroup):
     waiting_for_marathon_goal = State()
 
 class DialogueStates(StatesGroup):
+    in_dialogue = State()
     waiting_for_manual_entry = State()
     confirming_manual_entry = State()
-    in_dialogue = State()
+    adding_comment = State()
+    adding_rating = State()
